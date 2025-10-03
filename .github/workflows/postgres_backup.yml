@@ -71,8 +71,8 @@ jobs:
       # ---------------------------------------------------------
       - name: Crawl GitHub repos
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKENS: ${{ secrets.GITHUB_TOKENS }}   # optional, for token rotation
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKENS: ${{ secrets.GITHUB_TOKENS }}   # optional, for token rotation
           DATABASE_URL: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME }}
           DATABASE_URL_1: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME_SHARD1 }}
           DATABASE_URL_2: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME_SHARD2 }}
