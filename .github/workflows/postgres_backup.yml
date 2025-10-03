@@ -1,24 +1,24 @@
 name: Crawl and Backup GitHub Repos
 
 on:
-  workflow_dispatch:       # Manual trigger
+  workflow_dispatch:
   schedule:
-    - cron: '0 2 * * *'    # Every day at 02:00 UTC
+    - cron: '0 2 * * *'
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:14
+        image: postgres:17
         env:
-          POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          POSTGRES_DB: ${{ secrets.DB_NAME }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: github_task
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U ${{ secrets.DB_USER }}"
+          --health-cmd="pg_isready -U postgres"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -30,31 +30,28 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r crawler/requirements.txt
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
       - name: Create shard databases & apply schema
         env:
-          PGPASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_USER: ${{ secrets.DB_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          createdb -h localhost -U ${{ secrets.DB_USER }} ${{ secrets.DB_NAME_SHARD1 }}
-          createdb -h localhost -U ${{ secrets.DB_USER }} ${{ secrets.DB_NAME_SHARD2 }}
+          createdb -h localhost -U $POSTGRES_USER ${{ secrets.DB_NAME_SHARD1 }}
+          createdb -h localhost -U $POSTGRES_USER ${{ secrets.DB_NAME_SHARD2 }}
+          psql -h localhost -U $POSTGRES_USER -d ${{ secrets.DB_NAME }} -f crawler/setup_postgres.sql
+          psql -h localhost -U $POSTGRES_USER -d ${{ secrets.DB_NAME_SHARD1 }} -f crawler/setup_postgres.sql
+          psql -h localhost -U $POSTGRES_USER -d ${{ secrets.DB_NAME_SHARD2 }} -f crawler/setup_postgres.sql
 
-          psql -h localhost -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }}        -f crawler/setup_postgres.sql
-          psql -h localhost -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME_SHARD1 }} -f crawler/setup_postgres.sql
-          psql -h localhost -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME_SHARD2 }} -f crawler/setup_postgres.sql
-
-      - name: Run crawler
+      - name: Crawl GitHub repos
         env:
-          GH_TOKEN: ${{ secrets.MY_GH_TOKEN }}
-          GH_TOKENS: ${{ secrets.MY_GH_TOKENS }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKENS: ${{ secrets.GH_TOKENS }}
           DATABASE_URL: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME }}
           DATABASE_URL_1: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME_SHARD1 }}
           DATABASE_URL_2: postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost:5432/${{ secrets.DB_NAME_SHARD2 }}
@@ -67,15 +64,15 @@ jobs:
     needs: crawl
     services:
       postgres:
-        image: postgres:14
+        image: postgres:17
         env:
-          POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          POSTGRES_DB: ${{ secrets.DB_NAME }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: github_task
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U ${{ secrets.DB_USER }}"
+          --health-cmd="pg_isready -U postgres"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -84,25 +81,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
       - name: Create backup folder
         run: mkdir -p backups
 
       - name: Dump all databases
         env:
-          PGPASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_USER: ${{ secrets.DB_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
           DATE=$(date +"%Y%m%d_%H%M%S")
-
           dump_db() {
             local db_name=$1
             local out_file="backups/${db_name}_backup_${DATE}.sql"
             echo "Dumping $db_name → $out_file"
-            pg_dump -U ${{ secrets.DB_USER }} -h localhost -F c -b -v -f "$out_file" "$db_name"
+            pg_dump -U $POSTGRES_USER -h localhost -F c -b -v -f "$out_file" "$db_name"
           }
-
           dump_db ${{ secrets.DB_NAME }}
           dump_db ${{ secrets.DB_NAME_SHARD1 }}
           dump_db ${{ secrets.DB_NAME_SHARD2 }}
